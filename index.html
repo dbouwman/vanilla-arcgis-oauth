@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>ArcGIS oAuth - Vanilla Javascript</title>
+  <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+  <!-- Just in case you hit this with an old browser... -->
+  <script src="https://cdn.polyfill.io/v2/polyfill.js?features=fetch"></script>
+</head>
+<body>
+  <nav class="navbar navbar-default navbar-top">
+   <div class="container">
+     <div class="navbar-header">
+       <a class="navbar-brand" href="#">ArcGIS oAuth Example</a>
+     </div>
+   </div>
+  </nav>
+  <div class="container">
+    <div class="jumbotron">
+      <h1>ArcGIS oAuth</h1>
+      <p>Simple example using vanilla (ES6) javascript, localStorage and fetch.</p>
+    </div>
+    <div class="col-sm-3">
+      <div id="signInBlock" style="display:block">
+        <h3>Not authenticated. Please Sign in</h3>
+        <button id="signInBtn" class="btn btn-success">Sign In</button>
+      </div>
+      <div id="signOutBlock" style="display:none">
+        <h3>Authenticated.</h3>
+        <button id="signOutBtn" class="btn btn-danger">Sign Out</button>
+      </div>
+    </div>
+    <div class="col-sm-9" id="user-info">
+    </div>
+  </div>
+
+  <script>
+    // check local storage for auth info
+    let clientId = 'MReeG1Zt9JCulHLM';
+    let portalBaseUrl = 'https://www.arcgis.com';
+    let localStorageKey = 'agoauth';
+    let app = {
+      isAuthenticated:false,
+      portalInfo: null
+    };
+    // check if the browser supports localStorage...
+    if (window.localStorage) {
+      let authObjItem = window.localStorage.getItem(localStorageKey);
+      if (authObjItem) {
+        let authObj = JSON.parse(authObjItem);
+        // check if the token has expired
+        let nowTs = new Date().getTime();
+        if (authObj.validUntil > nowTs) {
+          // token should be valid...
+          this.validateToken(authObj)
+          .then((response) => {
+            app.isAuthenticated = true;
+            app.portalInfo = response;
+            updateUI();
+          })
+        }
+        // fetch the portal/self info and store it
+      } else {
+        // we need to show the sign-in button
+      }
+    }
+
+    // To valudate a token we make a call to the portals/self end-point.
+    // If this is successful it will return a big fat object with information about the org's portal
+    // and the current user.
+    function validateToken (authObj) {
+      // if you need to support down-level browsers,
+      return this.fetch(`${portalBaseUrl}/sharing/rest/portals/self?f=json&token=${authObj.access_token}`)
+      .then((response) => {
+        // fetch does not auto-parse into json... so
+        return response.json();
+      })
+      .then((response) => {
+        // Esri API's rarely use http error codes, but they may return an error payload
+        if (!response.error) {
+          // store the authObj in local storage
+          window.localStorage.setItem(localStorageKey, JSON.stringify(authObj));
+          return response;
+        } else {
+          throw new Error(`Error in response: ${JSON.stringify(response)}`);
+        }
+      })
+    }
+
+    // redirect.html simply calls this fn, with the url
+    // from there, we parse out the hash into a set of key/values
+    // and stuff that into an object that our app then stores
+    function checkOAuthResponse (href) {
+      // parse the href
+      let hash = href.split('#')[1];
+      let parts = hash.split('&');
+      let authObj = parts.reduce((acc, part) => {
+        let k = part.split('=')[0];
+        let v = part.split('=')[1];
+        acc[k] = v;
+        return acc;
+      }, {})
+      // the response has an expires_in value that is seconds-from-now...
+      // lets turn that into a real date, so we can check if the token is valid later w/o doing an xhr
+      authObj.validUntil = new Date().getTime() + authObj.expires_in;
+      validateToken (authObj)
+        .then((response) => {
+          app.isAuthenticated = true;
+          app.portalInfo = response;
+          updateUI();
+        })
+        .catch((err) => {
+          console.error(`Error: ${err}`);
+          alert('error authenticating! Check the console!');
+        });
+    }
+
+    function startSignIn () {
+      let currentBaseUrl = [window.location.protocol, '//', window.location.host].join('');
+      let authorizeUrl = `${portalBaseUrl}/sharing/oauth2/authorize?client_id=${clientId}&response_type=token&redirect_uri=${currentBaseUrl}/redirect.html`;
+      window.open(authorizeUrl, 'authWindow', 'menubar=no,location=yes,resizable=no,scrollbars=no,status=no,width=500,height=550');
+    }
+
+    function signOut () {
+      window.localStorage.removeItem(localStorageKey);
+      app.isAuthenticated = false;
+      app.portalInfo = null;
+      updateUI();
+    }
+
+    // Normally, you'd use a framework of some sort for UI updates etc...
+    function updateUI () {
+      if (app.isAuthenticated) {
+        document.getElementById('signInBlock').setAttribute('style','display:none');
+        document.getElementById('signOutBlock').setAttribute('style','display:block');
+        let userInfo = `
+          <h3>Hello ${app.portalInfo.user.fullName}</h3>
+          <p>You are part of the ${app.portalInfo.name} organization</p>
+        `;
+        document.getElementById('user-info').innerHTML = userInfo;
+      } else {
+        document.getElementById('signInBlock').setAttribute('style','display:block');
+        document.getElementById('signOutBlock').setAttribute('style','display:none');
+        document.getElementById('user-info').innerHTML = '';
+      }
+    }
+
+    // attach event handlers
+    document.getElementById('signInBtn').addEventListener('click', startSignIn);
+    document.getElementById('signOutBtn').addEventListener('click', signOut);
+
+  </script>
+</body>
+</html>
